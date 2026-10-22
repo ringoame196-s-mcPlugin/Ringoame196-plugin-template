@@ -2,13 +2,22 @@ import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import net.minecrell.pluginyml.bukkit.BukkitPluginDescription
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Properties
 
 val minecraftVersion: String by project
 val pluginVersion: String by project
-val deployPath: String by project
-val serverIp: String by project
-val serverPort: String by project
 val fullVersion = "$minecraftVersion-$pluginVersion"
+
+val sharedProps = Properties().apply {
+    val propFile = rootDir.parentFile.resolve("server-config.properties")
+    if (propFile.exists()) {
+        load(propFile.inputStream())
+    }
+}
+
+val deployPath = sharedProps.getProperty("deployPath")
+val serverIp = sharedProps.getProperty("serverIp")
+val serverPort = sharedProps.getProperty("serverPort")
 
 plugins {
     kotlin("jvm") version "2.0.20"
@@ -56,14 +65,21 @@ val deployPlugin by tasks.registering {
     dependsOn("shadowJar")
 
     val isCI = System.getenv("CI") != null
+    // null の場合にダミーパスを渡してタスク生成時のNPEを回避
     val copyDirPath = if (isCI) {
         layout.buildDirectory.dir("deploy").get().asFile.path
     } else {
-        deployPath
+        deployPath ?: layout.buildDirectory.dir("dummy").get().asFile.path
     }
     val targetDir = file(copyDirPath)
 
     doLast {
+        // 設定ファイルが未設定の場合は安全にスキップ
+        if (deployPath.isNullOrBlank() || serverIp.isNullOrBlank() || serverPort.isNullOrBlank()) {
+            logger.lifecycle("server-config.propertiesが未設定のため、プラグインの自動デプロイとAPI通知をスキップします。")
+            return@doLast
+        }
+
         if (isCI) {
             logger.lifecycle("CI環境のため、プラグインの自動デプロイとAPI通知をスキップします。")
             return@doLast
@@ -157,7 +173,7 @@ open class SetupTask : DefaultTask() {
         val targetBranch = "developer"
 
         println("Git ブランチを確認・作成しています: $targetBranch ...")
-        
+
         val process = ProcessBuilder("git", "switch", "-c", targetBranch)
             .redirectErrorStream(true)
             .start()
@@ -169,7 +185,6 @@ open class SetupTask : DefaultTask() {
             println("Successfully switched/created branch to $targetBranch")
             println(output)
         } else {
-            // すでにローカルにそのブランチが存在している場合は通常切り替え（git switch）
             if (output.contains("already exists") || output.contains("既に存在")) {
                 println("ブランチ '$targetBranch' は既に存在するため、切り替えを試みます...")
                 val fallbackProcess = ProcessBuilder("git", "switch", targetBranch)
