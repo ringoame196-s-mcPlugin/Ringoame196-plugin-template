@@ -65,7 +65,6 @@ val deployPlugin by tasks.registering {
     dependsOn("shadowJar")
 
     val isCI = System.getenv("CI") != null
-    // null の場合にダミーパスを渡してタスク生成時のNPEを回避
     val copyDirPath = if (isCI) {
         layout.buildDirectory.dir("deploy").get().asFile.path
     } else {
@@ -74,7 +73,6 @@ val deployPlugin by tasks.registering {
     val targetDir = file(copyDirPath)
 
     doLast {
-        // 設定ファイルが未設定の場合は安全にスキップ
         if (deployPath.isNullOrBlank() || serverIp.isNullOrBlank() || serverPort.isNullOrBlank()) {
             logger.lifecycle("server-config.propertiesが未設定のため、プラグインの自動デプロイとAPI通知をスキップします。")
             return@doLast
@@ -102,7 +100,6 @@ val deployPlugin by tasks.registering {
             return@doLast
         }
 
-        // サーバーへのリロード通知API呼び出し
         val port = serverPort.toInt()
         val apiUrl = "http://$serverIp:$port/plugin?name=${project.name}"
 
@@ -199,6 +196,52 @@ open class SetupTask : DefaultTask() {
             } else {
                 logger.error("ブランチの処理に失敗しました (Exit code: $exitCode):\n$output")
             }
+        }
+
+        // 🏷 タグ（GitHub Topics）を設定する処理を追加
+        setupGitHubTopics()
+    }
+
+    private fun setupGitHubTopics() {
+        try {
+            val remoteProcess = ProcessBuilder("git", "remote", "get-url", "origin")
+                .redirectErrorStream(true)
+                .start()
+            val remoteUrl = remoteProcess.inputStream.bufferedReader().use { it.readText() }.trim()
+            remoteProcess.waitFor()
+
+            val regex = Regex("github\\.com[:/]([^/]+)/([^/\\.]+)(?:\\.git)?")
+            val match = regex.find(remoteUrl)
+            if (match == null) {
+                logger.warn("GitHub のリモートURLが取得できなかったため、Topics の設定をスキップします。")
+                return
+            }
+
+            val (account, repo) = match.destructured
+            val repoPath = "$account/$repo"
+            val lowerProjectName = project.name.lowercase().replace("_", "-")
+
+            println("GitHub Topics を設定しています: $repoPath ...")
+            val process = ProcessBuilder(
+                "gh", "repo", "edit", repoPath,
+                "--add-topic", "minecraft",
+                "--add-topic", "minecraft-plugin",
+                "--add-topic", "paper",
+                "--add-topic", "papermc",
+                "--add-topic", "kotlin",
+                "--add-topic", lowerProjectName
+            )
+                .inheritIO()
+                .start()
+
+            val exitCode = process.waitFor()
+            if (exitCode == 0) {
+                println("✅ GitHub Topics を設定しました")
+            } else {
+                logger.warn("GitHub Topics の設定に失敗しました (Exit code: $exitCode)")
+            }
+        } catch (e: Exception) {
+            logger.warn("GitHub Topics の設定中にエラーが発生しました: ${e.message}")
         }
     }
 }
