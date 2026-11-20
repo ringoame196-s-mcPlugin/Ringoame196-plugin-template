@@ -105,11 +105,11 @@ jobs:
           ```
           """
 
-          # 本命（高上限・爆速） + 予備1（高上限） + 予備2（超高安定）
+          # 本命（最新・高速・低コスト） + 予備1（高上限・現役Flash-Lite） + 予備2（最新世代の無印Flash）
           models_to_try = [
               'gemini-3.5-flash-lite',
               'gemini-3.1-flash-lite',
-              'gemini-2.5-flash'
+              'gemini-3.8-flash'
           ]
 
           for model_name in models_to_try:
